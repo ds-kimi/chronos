@@ -68,13 +68,27 @@ jobs:
           path: chronos-win32.zip
           if-no-files-found: error
 
+      # The release is torn down rather than updated in place. Updating it left
+      # the `latest` tag wherever it was first created -- the action moves
+      # assets but never an existing tag -- so the release kept serving a fresh
+      # zip while the tag, the commit link and the publish date all still
+      # pointed at the initial commit. Deleting both first is what makes every
+      # master build actually roll forward.
+      - name: Retire the previous rolling release
+        if: github.ref == 'refs/heads/master'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete latest --yes --cleanup-tag || true
+
       # No versioning: every master build replaces the single rolling release.
       - name: Publish the rolling release
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          target_commitish: ${{ github.sha }}
           name: Latest build
           body: Built from ${{ github.sha }}.
           files: chronos-win32.zip
-          make_latest: true
+          make_latest: 'true'
