@@ -74,6 +74,10 @@ struct ClassPlan
 		originSlot( -2 ), anglesSlot( -2 ) { }
 };
 
+// Birth tick of an occupant that was already in place before the recording
+// started, so nothing live can ever match it by birth alone.
+static const int32_t kBornUnknown = -1000000000;
+
 // Last captured full state of one edict, used to emit deltas.
 struct EntitySlot
 {
@@ -88,11 +92,16 @@ struct EntitySlot
 	uint16_t classId;
 	uint16_t classNameId;
 	uint16_t modelNameId;
+
+	// Tick this index started holding its current occupant, stamped when the
+	// slot goes from empty to live and shipped in every keyframe.
+	int32_t born;
 	bool live;
 	bool needKey;
 
 	EntitySlot() : plan( nullptr ), planClass( nullptr ), classId( 0xFFFF ),
-		classNameId( 0 ), modelNameId( 0 ), live( false ), needKey( true ) { }
+		classNameId( 0 ), modelNameId( 0 ), born( kBornUnknown ), live( false ),
+		needKey( true ) { }
 };
 
 struct Frame

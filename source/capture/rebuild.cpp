@@ -19,8 +19,10 @@ static void ApplyRecord( const uint8_t *&cursor, uint16_t index )
 	if ( type == REC_GONE )
 	{
 		work.valid = false;
+		work.born = kBornUnknown;
 		return;
 	}
+
 
 	const ClassPlan *plan = PlanById( classId );
 	if ( plan == nullptr )
@@ -30,6 +32,7 @@ static void ApplyRecord( const uint8_t *&cursor, uint16_t index )
 	{
 		work.classNameId = Get<uint16_t>( cursor );
 		work.modelNameId = Get<uint16_t>( cursor );
+		work.born = Get<int32_t>( cursor );
 		work.blob.assign( cursor, cursor + plan->blobSize );
 		cursor += plan->blobSize;
 		work.classId = classId;
@@ -84,7 +87,10 @@ bool BuildStateAtTick( int32_t tick )
 		start = 0;
 
 	for ( size_t i = 0; i < s_work.size( ); ++i )
+	{
 		s_work[i].valid = false;
+		s_work[i].born = kBornUnknown;
+	}
 
 	for ( int i = start; i <= target; ++i )
 		ApplyFrame( rec.frames[i] );

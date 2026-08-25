@@ -65,7 +65,9 @@ include("chronos/server/voice/trim.lua")
 include("chronos/server/voice/capture.lua")
 include("chronos/server/world/events_play.lua")
 include("chronos/server/world/selfbody.lua")
+include("chronos/server/world/identity.lua")
 include("chronos/server/world/ghosts.lua")
+include("chronos/server/world/ghostlife.lua")
 include("chronos/server/world/visibility.lua")
 include("chronos/server/core/replay.lua")
 include("chronos/server/stage/stage.lua")
@@ -110,7 +112,7 @@ end
 -- A missing include used to surface as "attempt to call a nil value" on the
 -- first button press. Fail at load instead, naming what is absent.
 for _, name in ipairs({ "Broadcast", "SetSpectator", "PinPlayers", "PushEvent",
-    "ClearEvents", "PlayEvents", "SyncGhosts", "SyncVisibility", "SyncWorld",
+    "ClearEvents", "PlayEvents", "SyncGhosts", "SyncVisibility", "SyncWorld", "StampWorld", "StampEntity", "LiveOriginal", "ReleaseImpostors", "HideGhosts", "DropStaleGhosts",
     "EnterReplay", "ExitReplay", "AdvanceCursor", "CaptureAim", "RestoreAim",
     "UpdateBodies", "ClearBodies", "ClipURL", "EmitVoice", "HookAuris", "MarkSpeakers",
     "DropVoiceBuffers", "TrimVoice",

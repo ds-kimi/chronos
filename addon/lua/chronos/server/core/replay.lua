@@ -44,7 +44,26 @@ function CHRONOS.EnterReplay(atEnd)
     return true
 end
 
+---Handing the world back at whatever tick the cursor happened to sit on left
+---every prop somewhere in its own past, unfrozen, often inside geometry: props
+---that could not be pushed, and a burst of collision noise the moment physics
+---woke up. The newest recorded tick is the last moment the live world was real,
+---so the world is settled onto it before anybody gets control back.
+local function settle()
+    local _, last = chronos.GetRange()
+    if not last then return end
+
+    CHRONOS.SyncWorld(last)
+    chronos.Restore(last)
+
+    for _, ent in ipairs(ents.GetAll()) do
+        local phys = ent:GetPhysicsObject()
+        if IsValid(phys) then phys:Wake() end
+    end
+end
+
 function CHRONOS.ExitReplay()
+    settle()
     CHRONOS.Mode = "idle"
     CHRONOS.Playing = false
     CHRONOS.ClearGhosts()

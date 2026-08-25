@@ -47,6 +47,10 @@ static void CaptureLive( std::vector<uint8_t> &out, int index, int32_t tick,
 	ScrapeEntity( ent, plan, current );
 	BenchAddCycles( BP_SCRAPE, at );
 
+	// An index that was empty last tick is holding somebody new as of this one.
+	if ( !slot.live )
+		slot.born = tick;
+
 	bool key = slot.needKey || slot.classId != plan->id || slot.blob.size( ) != current.size( ) ||
 		( ( tick + index ) % rec.keyInterval ) == 0;
 	if ( key )
@@ -87,14 +91,17 @@ static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
 
 	BenchAddCycles( BP_PLAN, at );
 
+	// Marked from the edict, not from a resolved plan: an edict the scan cannot
+	// plan for still proves indices reach this high, and the bound has to cover
+	// it or everything above stays invisible for the rest of the recording.
+	if ( edict != nullptr && !edict->IsFree( ) && index > rec.highWater )
+		rec.highWater = index;
+
 	if ( plan == nullptr || plan->blobSize == 0 )
 	{
 		EmitGone( out, ( uint16_t )index, slot );
 		return;
 	}
-
-	if ( index > rec.highWater )
-		rec.highWater = index;
 
 	CaptureLive( out, index, tick, edict, ent, plan );
 }
@@ -113,8 +120,21 @@ void CaptureTick( float curTime )
 	std::vector<uint8_t> out = AcquireBuffer( );
 	int64_t began = BenchTickBegin( );
 
+	// GetEntityCount is a count of used slots, not the highest index in use:
+	// the engine parks a freed edict before reusing it, so a spawn after a
+	// delete lands above the count. Using it as a bound left those entities
+	// uncaptured, and with no REC_GONE for them either, a restore wrote one
+	// entity's bytes over whatever later took its index.
+	int scan = rec.highWater + 1;
 	int used = g_engine->GetEntityCount( ) + 1;
-	int scan = used > rec.highWater + 1 ? used : rec.highWater + 1;
+	if ( used > scan )
+		scan = used;
+
+	// The high-water mark can only ever learn about indices the bound already
+	// covers, so a full sweep runs periodically to find the ones above it.
+	if ( ( tick % kSweepInterval ) == 0 )
+		scan = kMaxEdicts;
+
 	if ( scan > kMaxEdicts )
 		scan = kMaxEdicts;
 

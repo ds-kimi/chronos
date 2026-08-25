@@ -12,6 +12,7 @@ void ClearRecording( )
 	rec.pool.clear( );
 	rec.bytes = 0;
 	rec.lastTick = -1;
+	rec.highWater = 0;
 
 	for ( size_t i = 0; i < rec.slots.size( ); ++i )
 		rec.slots[i] = EntitySlot( );

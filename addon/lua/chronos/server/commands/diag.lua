@@ -25,3 +25,26 @@ function CHRONOS.Actions.diag(ply)
     say(ply, string.format("[chronos] world: %d entities, %d players",
         #ents.GetAll(), #player.GetAll()))
 end
+
+---Why an entity is or is not on screen at the cursor, per recorded index. The
+---ghost path has three ways to end in nothing visible -- no manifest entry, a
+---refused spawn, a muted slot -- and they look identical from in front of it.
+---@param ply Player|nil
+function CHRONOS.Actions.diagents(ply)
+    local manifest = chronos.GetEntities(CHRONOS.Cursor)
+    say(ply, string.format("[chronos] manifest at tick %d: %d entries",
+        CHRONOS.Cursor, table.Count(manifest)))
+
+    for index, info in pairs(manifest) do
+        local ghost = CHRONOS.Ghosts[index]
+        local live = Entity(index)
+        say(ply, string.format("  #%d %s %s recborn=%s | ghost=%s nodraw=%s | live=%s born=%s | mine=%s muted=%s",
+            index, tostring(info.class), tostring(info.model), tostring(info.born),
+            IsValid(ghost) and ghost:EntIndex() or "none",
+            IsValid(ghost) and tostring(ghost:GetNoDraw()) or "-",
+            IsValid(live) and live:GetClass() or "none",
+            IsValid(live) and tostring(live.ChronosBorn) or "-",
+            tostring(CHRONOS.LiveOriginal(index, info, CHRONOS.Cursor) ~= nil),
+            tostring(CHRONOS.Impostors[index] ~= nil)))
+    end
+end

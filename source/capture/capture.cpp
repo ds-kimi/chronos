@@ -58,6 +58,12 @@ void EmitRecord( std::vector<uint8_t> &out, uint16_t index, const EntitySlot &sl
 	{
 		Put<uint16_t>( out, slot.classNameId );
 		Put<uint16_t>( out, slot.modelNameId );
+
+		// Identity is the pair (index, birth tick), never the index alone: the
+		// engine hands a freed index to the next spawn, and a rebuild window
+		// only reaches back a couple of key intervals, so the birth tick has to
+		// travel in the record rather than be inferred from where a seek began.
+		Put<int32_t>( out, slot.born );
 		PutBytes( out, cur.empty( ) ? nullptr : &cur[0], cur.size( ) );
 		return;
 	}

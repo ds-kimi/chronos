@@ -17,6 +17,7 @@ function CHRONOS.Actions.record()
     chronos.ClearEffects()
     chronos.ClearClips()
     chronos.Start()
+    CHRONOS.StampWorld()
     CHRONOS.Mode = "recording"
     CHRONOS.Broadcast()
     print("[chronos] recording started")

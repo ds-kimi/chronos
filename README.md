@@ -37,6 +37,7 @@ A binary module snapshots every networked entity every tick, and a Lua addon rep
 - [What the addon does on top of the ring](#what-the-addon-does-on-top-of-the-ring)
 - [Experimental mode](#experimental-mode-private-review)
   - [Stand-ins and the engine](#stand-ins-and-the-engine)
+- [An edict index is not an identity](#an-edict-index-is-not-an-identity)
 - [Voice replay](#voice-replay)
 - [Configuration](#configuration)
 - [Benchmark](#benchmark)
@@ -276,6 +277,54 @@ needs neither.
 | `chronos_stageclones` | `1` | Recreate props as their own class instead of puppets |
 | `chronos_stagespawn` | `1` | Spawn stand-ins at all; `0` opens a stage that only hides the live world |
 | `chronos_stagedebug` | `0` | Log every stand-in as it is created |
+
+## An edict index is not an identity
+
+The recording keys everything by edict index, and for a while the replay treated
+that index as if it named an entity. Source does not: it parks a freed edict
+briefly and then hands the same index to the next spawn. So a session that goes
+*spawn a prop, delete it, spawn another* ends with two different entities that
+were both, at different times, "index 292".
+
+Every symptom below came from that one assumption:
+
+- **A deleted prop never came back.** Its ghost was refused because the live
+  entity sitting at its index looked like a match — same class, and with the
+  same prop spawned twice, the same model too.
+- **The new prop was hidden and could not be moved.** It was not in the recorded
+  manifest under its own name, so the visibility pass hid it, and the ghost
+  bound to its index drew the dead prop over the top of it. The new prop was
+  underneath, `NODRAW` and not solid.
+- **The new prop took on the old one's appearance.** A restore onto what it
+  believed was the original writes the whole blob, so the live prop was fed a
+  dead prop's state every tick.
+- **Undo or Delete on it took the server down.** That whole-blob write is the
+  same hazard as writing onto a stand-in: SendProps that resolve past the end of
+  the object put one entity's trailing memory into another's, and the crash
+  lands later, at the next allocation, not at the write.
+
+Experimental mode was immune to all of it and stayed the reference: it never
+writes into anything but its own clones, so a slot changing hands cost it
+nothing.
+
+The fix is that identity is the pair **(index, birth tick)**, never the index
+alone:
+
+- The recorder stamps `born` on a slot the tick it goes from empty to live, and
+  ships it in **every keyframe**. Inferring it during the rebuild instead was
+  tried and does not work: a seek window only reaches back a couple of key
+  intervals, so an entity spawned earlier than that has no visible birth.
+- Every live entity is stamped with the tick it was created on, scoped to a
+  recording session so stamps from an earlier recording cannot pass as current.
+  Whatever is already standing when recording starts is stamped `-1`, and the
+  recorded side uses `-1` for the same, so the map's own entities match without
+  a birth tick ever being captured.
+- A live entity is written into only when both birth ticks agree (within two
+  ticks, since a spawn lands between two captures) on top of class and model.
+- A ghost remembers which occupant it stands for and is released the moment its
+  index changes hands, or hands back to a live original.
+- An index that is neither ghosted nor proven original is muted for the restore
+  rather than written to, so nothing lands on a stranger.
 
 ## Voice replay
 

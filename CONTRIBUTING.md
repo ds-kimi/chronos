@@ -67,7 +67,6 @@ affected entity, to confirm the props you expect were actually resolved.
 **Both**
 
 - English only, in code and comments.
-- No trailing whitespace.
 
 ## Pull requests
 

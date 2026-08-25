@@ -51,6 +51,8 @@ LUA_FUNCTION( Lua_GetEntities )
 		LUA->SetField( -2, "class" );
 		LUA->PushString( StringById( work->modelNameId ) );
 		LUA->SetField( -2, "model" );
+		LUA->PushNumber( work->born );
+		LUA->SetField( -2, "born" );
 		LUA->SetTable( -3 );
 	}
 

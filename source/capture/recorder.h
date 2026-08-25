@@ -9,6 +9,11 @@ namespace Chronos
 // index so the cost spreads evenly and any window of this length is seekable.
 static const int kDefaultKeyInterval = 64;
 
+// How often the capture scan walks every edict slot instead of stopping at the
+// high-water mark. Cheap at this rate, and it is what lets the bound discover
+// indices that opened above it.
+static const int kSweepInterval = 8;
+
 struct Recorder
 {
 	std::deque<Frame> frames;
@@ -42,7 +47,12 @@ struct WorkSlot
 	uint16_t modelNameId;
 	bool valid;
 
-	WorkSlot( ) : classId( 0xFFFF ), classNameId( 0 ), modelNameId( 0 ), valid( false ) { }
+	// Birth tick carried by the keyframe: which occupant of this index the
+	// rebuilt state describes. See EntitySlot::born.
+	int32_t born;
+
+	WorkSlot( ) : classId( 0xFFFF ), classNameId( 0 ), modelNameId( 0 ), valid( false ),
+		born( kBornUnknown ) { }
 };
 
 Recorder &Rec( );
