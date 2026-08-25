@@ -73,6 +73,7 @@ include("chronos/server/stage/clones.lua")
 include("chronos/server/stage/sync.lua")
 include("chronos/server/stage/transmit.lua")
 include("chronos/server/stage/drive.lua")
+include("chronos/server/core/runtick.lua")
 include("chronos/server/core/hooks.lua")
 include("chronos/server/commands/commands.lua")
 include("chronos/server/commands/play.lua")
@@ -81,6 +82,15 @@ include("chronos/server/commands/diag.lua")
 include("chronos/server/commands/misc.lua")
 include("chronos/server/commands/tune.lua")
 include("chronos/server/commands/voice.lua")
+include("chronos/server/bench/bench.lua")
+include("chronos/server/bench/bots.lua")
+include("chronos/server/bench/botai.lua")
+include("chronos/server/bench/load.lua")
+include("chronos/server/bench/report.lua")
+include("chronos/server/bench/rounds.lua")
+include("chronos/server/bench/phases.lua")
+include("chronos/server/bench/driver.lua")
+include("chronos/server/bench/commands.lua")
 include("chronos/server/net/net.lua")
 
 -- Both of these used to surface as "attempt to call a nil value" on the first
@@ -90,7 +100,8 @@ for _, name in ipairs({ "Start", "Stop", "Clear", "Capture", "Restore", "GetRang
     "GetEntities", "GetStats", "SetMemoryCap", "SetKeyInterval", "SetIgnore",
     "ClearIgnore", "SetSkip", "ClearSkip", "BindProxy", "ClearProxies", "GetTransform", "ReadProp",
     "PlayEffects", "ClearEffects", "EffectCount", "StartClipServer",
-    "StopClipServer", "AddClip", "ClearClips", "SetClipCap", "ClipStats", "GetPlan", "IsRecording" }) do
+    "StopClipServer", "AddClip", "ClearClips", "SetClipCap", "ClipStats", "GetPlan", "IsRecording",
+    "BenchEnable", "BenchReset", "BenchMark", "BenchSample", "BenchReport", "ProcStats" }) do
     if not isfunction(chronos[name]) then
         ErrorNoHalt("[chronos] chronos." .. name .. " is missing from the module" .. "\n")
     end
@@ -108,7 +119,13 @@ for _, name in ipairs({ "Broadcast", "SetSpectator", "PinPlayers", "PushEvent",
     "SpawnStagePuppet", "SyncStageTransmit", "ClearStageTransmit",
     "UpdateStagePuppets", "PlayStageEvents",
     "PushEvent", "PushEventAt",
-    "SendVoiceManifest" }) do
+    "SendVoiceManifest",
+    "RunTick", "BenchLog", "BenchTickMs", "BenchEnable", "BenchBots", "BenchAddBots",
+    "BenchClearBots", "BenchSpawnOrigin", "BenchSpawnProps", "BenchClearProps",
+    "BenchAddRow", "BenchScaling", "BenchHeader", "BenchWrite", "BenchGuard",
+    "BenchStart", "BenchStop", "BenchBeginRound", "BenchLabel", "BenchIgnoreHumans",
+    "BenchRestoreHumans", "BenchEndWarmup", "BenchEndBaseline", "BenchEndRecord",
+    "BenchSeekStep" }) do
     if not isfunction(CHRONOS[name]) then
         ErrorNoHalt("[chronos] CHRONOS." .. name .. " is missing, an include did not run" .. "\n")
     end

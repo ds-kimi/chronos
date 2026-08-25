@@ -1,3 +1,4 @@
+#include "bench/counters.h"
 #include "core/bytes.h"
 #include "props/propplan.h"
 #include "capture/recorder.h"
@@ -22,6 +23,7 @@ static void EmitGone( std::vector<uint8_t> &out, uint16_t index, EntitySlot &slo
 	Put<uint16_t>( out, 0 );
 	Put<uint8_t>( out, REC_GONE );
 	slot = EntitySlot( );
+	BenchCountGone( );
 }
 
 static void RefreshIdentity( edict_t *edict, EntitySlot &slot )
@@ -32,14 +34,46 @@ static void RefreshIdentity( edict_t *edict, EntitySlot &slot )
 	slot.modelNameId = InternString( serverEnt != nullptr ? STRING( serverEnt->GetModelName( ) ) : "" );
 }
 
-static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
+// Split out of CaptureEntity so the scrape and emit probes have their own scope
+// and the resolve path above them stays out of the deep timings.
+static void CaptureLive( std::vector<uint8_t> &out, int index, int32_t tick,
+	edict_t *edict, CBaseEntity *ent, const ClassPlan *plan )
 {
 	Recorder &rec = Rec( );
 	EntitySlot &slot = rec.slots[index];
+	static std::vector<uint8_t> current;
+
+	uint64_t at = BenchCycles( );
+	ScrapeEntity( ent, plan, current );
+	BenchAddCycles( BP_SCRAPE, at );
+
+	bool key = slot.needKey || slot.classId != plan->id || slot.blob.size( ) != current.size( ) ||
+		( ( tick + index ) % rec.keyInterval ) == 0;
+	if ( key )
+		RefreshIdentity( edict, slot );
+
+	size_t before = out.size( );
+	at = BenchCycles( );
+	EmitRecord( out, ( uint16_t )index, slot, plan, current, key );
+	BenchAddCycles( BP_EMIT, at );
+
+	BenchCountEntity( key, out.size( ) - before, plan->blobSize );
+	slot.blob = current;
+	slot.classId = plan->id;
+	slot.live = true;
+	slot.needKey = false;
+}
+
+static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
+{
+	EntitySlot &slot = Rec( ).slots[index];
 	edict_t *edict = g_engine->PEntityOfEntIndex( index );
 	IServerUnknown *unknown = edict != nullptr && !edict->IsFree( ) ? edict->GetUnknown( ) : nullptr;
 	CBaseEntity *ent = unknown != nullptr ? unknown->GetBaseEntity( ) : nullptr;
+
+	uint64_t at = BenchCycles( );
 	const ClassPlan *plan = ent != nullptr ? GetPlan( unknown->GetNetworkable( )->GetServerClass( ), ent ) : nullptr;
+	BenchAddCycles( BP_PLAN, at );
 
 	if ( plan == nullptr || plan->blobSize == 0 )
 	{
@@ -47,19 +81,7 @@ static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
 		return;
 	}
 
-	static std::vector<uint8_t> current;
-	ScrapeEntity( ent, plan, current );
-
-	bool key = slot.needKey || slot.classId != plan->id || slot.blob.size( ) != current.size( ) ||
-		( ( tick + index ) % rec.keyInterval ) == 0;
-	if ( key )
-		RefreshIdentity( edict, slot );
-
-	EmitRecord( out, ( uint16_t )index, slot, plan, current, key );
-	slot.blob = current;
-	slot.classId = plan->id;
-	slot.live = true;
-	slot.needKey = false;
+	CaptureLive( out, index, tick, edict, ent, plan );
 }
 
 // Ticks are counted here rather than read from CGlobalVars: that struct's
@@ -74,6 +96,7 @@ void CaptureTick( float curTime )
 	int32_t tick = rec.lastTick + 1;
 	rec.lastTick = tick;
 	std::vector<uint8_t> out = AcquireBuffer( );
+	int64_t began = BenchTickBegin( );
 
 	// Stage clones are replay furniture standing in the live world, so
 	// recording them would file a replay back into its own recording.
@@ -86,6 +109,7 @@ void CaptureTick( float curTime )
 	}
 
 	Put<uint16_t>( out, kEndOfFrame );
+	BenchTickEnd( began, out.size( ) );
 	PushFrame( tick, curTime, out );
 }
 

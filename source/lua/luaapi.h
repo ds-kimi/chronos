@@ -41,6 +41,13 @@ LUA_FUNCTION_DECLARE( Lua_PlayEffects );
 LUA_FUNCTION_DECLARE( Lua_ClearEffects );
 LUA_FUNCTION_DECLARE( Lua_EffectCount );
 
+LUA_FUNCTION_DECLARE( Lua_BenchEnable );
+LUA_FUNCTION_DECLARE( Lua_BenchReset );
+LUA_FUNCTION_DECLARE( Lua_BenchMark );
+LUA_FUNCTION_DECLARE( Lua_BenchSample );
+LUA_FUNCTION_DECLARE( Lua_BenchReport );
+LUA_FUNCTION_DECLARE( Lua_ProcStats );
+
 void RegisterAPI( GarrysMod::Lua::ILua *LUA );
 
 }

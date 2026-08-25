@@ -39,6 +39,7 @@ A binary module snapshots every networked entity every tick, and a Lua addon rep
   - [Stand-ins and the engine](#stand-ins-and-the-engine)
 - [Voice replay](#voice-replay)
 - [Configuration](#configuration)
+- [Benchmark](#benchmark)
 - [Lua API](#lua-api)
 - [Tick numbering](#tick-numbering)
 - [What is recorded](#what-is-recorded)
@@ -134,6 +135,8 @@ chronos keyinterval <ticks>  keyframe stagger, also the seek window
 chronos exit        leave scrub mode and unfreeze
 chronos clear       drop the recording
 chronos stats       frames, memory, tick range
+chronos bench run [rounds] [seconds] [deep]  profile the server under load
+chronos bench now | on [deep] | off | reset | stop
 chronos help        list commands
 chronos_ui          open the panel, then toggle its mouse capture (client)
 chronos_ui_close    close the panel (client)
@@ -340,6 +343,181 @@ on the next map load.
 | `keyinterval` | `64` | Keyframe stagger, and the seek window |
 | `voicecap` | `256` | Voice clip budget in MB |
 
+## Benchmark
+
+Chronos does its work in C++, inside the server frame, across all 8192 edict
+slots every tick. A `SysTime()` wrapper in Lua cannot measure that: it cannot
+split scrape from emit from plan lookup, it cannot probe per entity without the
+probe costing more than the work, it cannot see process memory or CPU time, and
+it cannot tell engine work apart from the sleep srcds does to hold tickrate.
+
+So the instrumentation lives in the module and Lua only drives the schedule.
+`chronos bench` runs the server against a rising load ladder and writes a plain
+text report to `garrysmod/data/chronos_bench/`.
+
+### Quick start
+
+```
+chronos bench run 3 20
+```
+
+Three rounds, twenty seconds of recording each. Round 1 measures the map alone,
+round 2 adds ten active bots and a hundred props, round 3 adds ten more of each.
+A run takes roughly `rounds * (warmup + baseline + seconds + seek)` seconds and
+prints every block to the server console as it goes, so a run that kills the
+server still leaves its evidence behind.
+
+### Commands
+
+```
+chronos bench run [rounds] [seconds] [deep]  scheduled load ladder
+chronos bench stop                           end the run early and write the report
+chronos bench now                            print the current window immediately
+chronos bench on [deep]                      instrumentation without a schedule
+chronos bench off                            stop measuring, remove the frame hook
+chronos bench reset                          restart the measurement window
+```
+
+`chronos bench on` followed by `chronos bench now` is the immediate mode: it
+measures whatever the server happens to be doing, with real players on it, and
+prints a block on demand. `chronos bench run` is the controlled mode.
+
+### What one round does
+
+| Phase | Default | What it is for |
+| --- | --- | --- |
+| warmup | 4 s | Lets the bots and props just added settle |
+| baseline | 6 s | **Instrumentation on, recording off.** The control |
+| record | 20 s | `chronos record`, the full capture path under load |
+| seek | 50 seeks | `BuildStateAtTick` and `RestoreTick`, spread over driver steps |
+
+The baseline is the point of the whole design. It is the same server, the same
+load and the same clock with Chronos not capturing, so the recording rows are a
+subtraction rather than a guess. Seeks are spread over several driver steps
+rather than fired in one burst, because fifty back to back is a freeze the
+tickrate sample would then have to be explained around.
+
+Between rounds the ring is cleared, ten bots are added and another batch of
+props is spawned. Bots move, sweep their aim, jump and fire, so delta volume,
+sounds and temp entities scale with them; idle bodies would only scale the edict
+count.
+
+### Reading the report
+
+```
+== ROUND 2 RECORDING  bots 10  props 100  players 10 ==
+clock      rdtsc 3.593 GHz  probe 8.9 ns  qpc 10.000 MHz  deep on
+phase                    n      mean      p50      p95      p99       max      total  %frame
+gameframe.total        528     4.919    3.164    7.158   44.367   167.487     2597.3   100.0
+gameframe.gap          527    14.876   15.507   28.146   44.477    62.940     7839.8       -
+capture.tick           528     1.532    1.345    2.362    4.165    10.946      808.8    31.1
+  capture.scrape       528     0.770    0.660    1.260    1.972     5.721      406.5    15.6
+  capture.emit         528     0.453    0.408    0.656    1.005     6.433      239.1     9.2
+  capture.plan         528     0.115    0.100    0.164    0.266     1.583       60.6     2.3
+tempent.hook           149     0.003    0.002    0.008    0.012     0.018        0.4     0.0
+lua.tick               528     0.110    0.051    0.117    0.211    26.425       58.0     2.2
+budget     32.5% of the 15.15 ms tick   over-budget ticks 18 of last 528   worst 167.487 ms
+tickrate   actual 67.22 tps   1%-low 22.48 tps   jitter 8.600 ms   longest gap 62.940 ms
+memory     ring 8.6 MB / 512 MB (528 frames, 16.6 KB/tick, p99 23.3 KB)  pool 0
+           process WS 222 MB (+13 MB since reset)  private 855 MB  peak 223 MB  threads 31
+           system 4.4 GB free of 15.9 GB
+cpu        user 3.31 s  kernel 1.28 s  over 8.0 s -> 57.4% of one core
+capture    scanned 8192/tick  live 408.0  key 7.1/tick  delta 400.9/tick  gone 0.0/tick
+           emitted 16.6 KB/tick of 698.5 KB scanned (2.4% of blob)
+```
+
+| Row | Meaning |
+| --- | --- |
+| `gameframe.total` | The whole engine server frame, **work only**, from a detour on `IServerGameDLL::GameFrame`. This is the denominator for `%frame` |
+| `gameframe.gap` | Wall time between frames, which is where real tickrate comes from. It has no `%frame` share by definition, so it prints `-` |
+| `capture.tick` | `CaptureTick`: the 8192-slot scan, the delta encode and the frame push |
+| `capture.scrape` / `emit` / `plan` | Deep mode only. Summed in cycles across the whole loop and converted once per tick, so the conversion is not paid per entity |
+| `restore.tick` | The push loop of `RestoreTick`, with the rebuild below it timed separately |
+| `rebuild.seek` | `BuildStateAtTick`: replaying `keyinterval * 2` frames over all work slots |
+| `tempent.hook` | Only the scrape inside the `PlaybackTempEntity` hook; the engine call it wraps is not charged here |
+| `lua.tick` | The Lua `Tick` body **minus** the native time inside it, so nothing is counted twice |
+
+`budget` is mean frame against the tick interval, which is the direct answer to
+how much tickspeed is being eaten. `over-budget ticks` counts frames in the last
+window that ran longer than one whole tick.
+
+The `emitted ... of ... scanned` line is the delta ratio, and it is what decides
+how long the ring lasts. 2.4% here means almost nothing is moving and 512 MB
+holds a long recording; a busy server pushes that up and the ring drains faster.
+
+`pool 0` means the buffer recycler has not been touched yet, which is expected
+until the ring hits its cap for the first time.
+
+### The scaling matrix
+
+Every run ends with one row per round, which is the table worth keeping:
+
+```
+== SCALING ==
+ bots  props    live  capture.tick   %frame     MB/s       tps    ws MB
+    0     50     178       0.697ms     28.7     0.43     67.13      194
+   10    100     408       1.532ms     31.1     1.09     67.22      222
+```
+
+Live entity count, not player count, is what capture cost tracks.
+
+### Deep mode
+
+`chronos bench run 3 20 deep`, or `chronos bench on deep`, turns on the
+per-entity probes behind the `capture.scrape` / `emit` / `plan` breakdown. They
+use `rdtsc` rather than `QueryPerformanceCounter`, because at 8192 edicts a tick
+QPC's call cost is larger than the work being measured. The cycle rate is pinned
+against QPC when instrumentation is enabled, and the `clock` line reports both
+that rate and the measured cost of a probe pair, so the numbers state their own
+error bar.
+
+Deep mode costs real budget. Run the same round with and without it and compare
+`gameframe.total`: that difference is the instrumentation overhead. Leave it off
+for anything measuring absolute cost, turn it on when chasing which half of the
+capture path got slower.
+
+### Tuning a run
+
+Everything lives in `CHRONOS.Bench` and can be set from a server script before
+`chronos bench run`:
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| `Rounds` | `3` | Rungs on the ladder |
+| `Warmup` | `4` | Seconds to let new load settle |
+| `Baseline` | `6` | Seconds of recording-off control |
+| `Record` | `20` | Seconds of recording per round |
+| `Seeks` | `50` | Seeks in the seek phase |
+| `SeeksPerStep` | `10` | Seeks per driver step, to spread the cost |
+| `BotsPerRound` | `10` | Bots added between rounds |
+| `PropsPerRound` | `100` | Props added between rounds |
+| `MinTpsFraction` | `0.6` | Abort below this fraction of target tickrate |
+| `MaxWorkingSetMB` | `3072` | Abort past this working set |
+
+Both abort guards are recorded rather than applied silently: a run that trips one
+names it in an `ABORTED:` line at the end of the report.
+
+### Things to know before trusting a run
+
+- **The seek phase rewinds the live world.** It calls `chronos.Restore` for
+  real, which is the only way to measure what a restore actually costs. Humans
+  on the server are put on the ignore list for the duration so they keep control
+  of themselves, but props and bots do get thrown around. Benchmark on a server
+  nobody is playing on.
+- **Bots need slots.** `RunConsoleCommand("bot")` silently does nothing once
+  `maxplayers` is reached, so the ladder quietly stops growing. The `bots` column
+  is counted after the warmup, so it reports what actually connected rather than
+  what was asked for.
+- **Hibernation is disabled for the duration.** An empty srcds stops thinking and
+  round 1 has no players, so `sv_hibernate_think` is set to `1` while a run is in
+  flight and back to `0` when it ends.
+- **The frame hook only exists while measuring.** `chronos bench off` removes it,
+  and so does module unload. An idle server carries no patched vtable entry it
+  did not ask for.
+- **`gameframe` maxima include map churn.** Prop spawns, the seek bursts and the
+  engine's own periodic work all land in `max`. Read `p50` and `p95` for the
+  steady state and `max` for what the worst tick looked like.
+
 ## Lua API
 
 | Function | Purpose |
@@ -367,6 +545,12 @@ on the next map load.
 | `chronos.StartClipServer(port)` / `chronos.StopClipServer()` | voice clip HTTP server |
 | `chronos.AddClip(wavBytes)` | store a clip, returns the id its URL is built from |
 | `chronos.ClearClips()` / `chronos.SetClipCap(mb)` / `chronos.ClipStats()` | clip ring control |
+| `chronos.BenchEnable(on, deep)` | instrumentation and the `GameFrame` detour on or off |
+| `chronos.BenchReset()` | zero every sample and restamp the CPU and memory baseline |
+| `chronos.BenchMark(phase, ms)` | file a Lua-measured span into a named phase, e.g. `lua.tick` |
+| `chronos.BenchSample()` | live numbers for guards and HUDs: frame mean and p99, capture mean, tps, live count, frame bytes |
+| `chronos.BenchReport(label, tickMs)` | the rendered text block for one window |
+| `chronos.ProcStats()` | working set, private and peak bytes, process CPU time, thread count, system RAM |
 
 ## Tick numbering
 

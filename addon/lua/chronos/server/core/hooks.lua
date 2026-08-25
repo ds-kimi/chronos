@@ -1,34 +1,9 @@
 hook.Add("Tick", "chronos_tick", function()
-    if CHRONOS.Mode == "recording" then
-        CHRONOS.RecTick = CHRONOS.RecTick + 1
-        chronos.Capture(CurTime())
-        CHRONOS.CaptureAim(CHRONOS.RecTick)
-        CHRONOS.MarkSpeakers()
-    end
+    if not CHRONOS.BenchClock then return CHRONOS.RunTick() end
 
-    -- A stage replay runs alongside the recording rather than in place of it,
-    -- so the capture above still happened on this tick.
-    if CHRONOS.Stage then return CHRONOS.StageTick() end
-    if CHRONOS.Mode ~= "replay" then return end
-
-    local previous = CHRONOS.Cursor
-    CHRONOS.AdvanceCursor()
-
-    if CHRONOS.Playing then
-        CHRONOS.PlayEvents(previous, CHRONOS.Cursor)
-    end
-
-    -- Rebuilding the manifest is far more expensive than a restore, so the
-    -- entity population only resyncs on a jump or every SyncEvery ticks.
-    if math.abs(CHRONOS.Cursor - CHRONOS.LastSync) >= CHRONOS.SyncEvery then
-        CHRONOS.LastSync = CHRONOS.Cursor
-        CHRONOS.SyncWorld(CHRONOS.Cursor)
-    end
-
-    chronos.Restore(CHRONOS.Cursor)
-    CHRONOS.PinPlayers()
-    CHRONOS.RestoreAim(CHRONOS.Cursor)
-    CHRONOS.UpdateBodies()
+    local began = SysTime()
+    CHRONOS.RunTick()
+    chronos.BenchMark("lua.tick", (SysTime() - began) * 1000)
 end)
 
 timer.Create("chronos_broadcast", 0.1, 0, function()

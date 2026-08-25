@@ -38,6 +38,7 @@ function CHRONOS.Actions.help(ply)
         "chronos voiceport <port> | voicehost <ip> | voicecap <mb>",
         "chronos voicestats | voicetest | voicedebug <0|1> | voicechain",
         "chronos diag  print recording and stage state",
+        "chronos bench run|stop|now|on|off|reset  profile the server under load",
         "chronos_ui opens the scrubber"
     }
 

@@ -1,3 +1,4 @@
+#include "bench/counters.h"
 #include "lua/luaapi.h"
 #include "props/propplan.h"
 #include "capture/recorder.h"
@@ -21,6 +22,7 @@ GMOD_MODULE_CLOSE( )
 {
 	Chronos::StopClipServer( );
 	Chronos::ClearClips( );
+	Chronos::RemoveGameFrameHook( );
 	Chronos::RemoveTempEntHook( );
 	Chronos::StopRecording( );
 	Chronos::ClearRecording( );

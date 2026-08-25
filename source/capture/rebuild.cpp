@@ -1,3 +1,4 @@
+#include "bench/counters.h"
 #include "core/bytes.h"
 #include "props/propplan.h"
 #include "capture/recorder.h"
@@ -77,6 +78,7 @@ bool BuildStateAtTick( int32_t tick )
 	if ( target < 0 )
 		return false;
 
+	int64_t began = g_bench.on ? QpcNow( ) : 0;
 	int start = target - rec.keyInterval * 2;
 	if ( start < 0 )
 		start = 0;
@@ -86,6 +88,13 @@ bool BuildStateAtTick( int32_t tick )
 
 	for ( int i = start; i <= target; ++i )
 		ApplyFrame( rec.frames[i] );
+
+	if ( began != 0 )
+	{
+		double ms = QpcToMs( QpcNow( ) - began );
+		g_bench.phase[BP_REBUILD].Add( ms );
+		g_bench.nativeMs += ms;
+	}
 
 	return true;
 }

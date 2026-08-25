@@ -44,6 +44,12 @@ void RegisterAPI( GarrysMod::Lua::ILua *LUA )
 	Bind( LUA, "PlayEffects", Lua_PlayEffects );
 	Bind( LUA, "ClearEffects", Lua_ClearEffects );
 	Bind( LUA, "EffectCount", Lua_EffectCount );
+	Bind( LUA, "BenchEnable", Lua_BenchEnable );
+	Bind( LUA, "BenchReset", Lua_BenchReset );
+	Bind( LUA, "BenchMark", Lua_BenchMark );
+	Bind( LUA, "BenchSample", Lua_BenchSample );
+	Bind( LUA, "BenchReport", Lua_BenchReport );
+	Bind( LUA, "ProcStats", Lua_ProcStats );
 
 	LUA->SetField( -2, "chronos" );
 	LUA->Pop( );

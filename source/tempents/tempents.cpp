@@ -1,3 +1,4 @@
+#include "bench/counters.h"
 #include "props/propplan.h"
 
 #include "dt_send.h"
@@ -49,6 +50,7 @@ static void __fastcall Hook_Playback( void *self, void *edx, IRecipientFilter &f
 {
 	// A stage replay keeps recording while it plays effects back through the
 	// same engine call, so without this an old firefight is filed as a new one.
+	int64_t began = g_bench.on ? QpcNow( ) : 0;
 	Recorder &rec = Rec( );
 	if ( rec.recording && !g_replayingTempEnts && sender != nullptr && table != nullptr )
 	{
@@ -64,6 +66,10 @@ static void __fastcall Hook_Playback( void *self, void *edx, IRecipientFilter &f
 			ScrapeEntity( reinterpret_cast<CBaseEntity *>( record.sender ), plan, record.blob );
 		}
 	}
+
+	// Only our own scrape is charged here; the engine call below is its cost.
+	if ( began != 0 )
+		g_bench.phase[BP_TEMPENT].Add( QpcToMs( QpcNow( ) - began ) );
 
 	s_original( self, edx, filter, delay, sender, table, classID );
 }

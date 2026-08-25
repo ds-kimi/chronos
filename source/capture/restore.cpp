@@ -1,3 +1,4 @@
+#include "bench/counters.h"
 #include "props/propplan.h"
 #include "capture/recorder.h"
 
@@ -91,6 +92,9 @@ bool RestoreTick( int32_t tick, bool proxyOnly )
 	if ( g_engine == nullptr || !BuildStateAtTick( tick ) )
 		return false;
 
+	// The rebuild above is timed on its own, so this span is the push cost only.
+	int64_t began = g_bench.on ? QpcNow( ) : 0;
+
 	for ( int i = 0; i < kMaxEdicts; ++i )
 	{
 		const WorkSlot *work = WorkAt( i );
@@ -106,6 +110,13 @@ bool RestoreTick( int32_t tick, bool proxyOnly )
 			continue;
 
 		PushEntity( target == 0xFFFF ? i : target, *work, target != 0xFFFF );
+	}
+
+	if ( began != 0 )
+	{
+		double ms = QpcToMs( QpcNow( ) - began );
+		g_bench.phase[BP_RESTORE].Add( ms );
+		g_bench.nativeMs += ms;
 	}
 
 	return true;
