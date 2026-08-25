@@ -40,6 +40,7 @@ const ClassPlan *PlanForTable( const SendTable *table, const void *sender )
 	ClassPlan *plan = new ClassPlan( );
 	plan->netName = table->GetName( );
 	FlattenTable( const_cast<SendTable *>( table ), 0, *plan, &seen[0], 0, sender );
+	FinalizePlan( *plan );
 
 	s_tablePlans[table] = plan;
 	return plan;

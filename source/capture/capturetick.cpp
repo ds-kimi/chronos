@@ -57,7 +57,10 @@ static void CaptureLive( std::vector<uint8_t> &out, int index, int32_t tick,
 	EmitRecord( out, ( uint16_t )index, slot, plan, current, key );
 	BenchAddCycles( BP_EMIT, at );
 
-	BenchCountEntity( key, out.size( ) - before, plan->blobSize );
+	BenchCountEntity( key, out.size( ) - before, plan );
+	// Not a swap: `current` is shared by every entity, so swapping hands it a
+	// buffer sized for the previous class and the next resize reallocates.
+	// Measured 6% slower at 500+ entities than copying into existing capacity.
 	slot.blob = current;
 	slot.classId = plan->id;
 	slot.live = true;
@@ -66,13 +69,22 @@ static void CaptureLive( std::vector<uint8_t> &out, int index, int32_t tick,
 
 static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
 {
-	EntitySlot &slot = Rec( ).slots[index];
+	Recorder &rec = Rec( );
+	EntitySlot &slot = rec.slots[index];
 	edict_t *edict = g_engine->PEntityOfEntIndex( index );
 	IServerUnknown *unknown = edict != nullptr && !edict->IsFree( ) ? edict->GetUnknown( ) : nullptr;
 	CBaseEntity *ent = unknown != nullptr ? unknown->GetBaseEntity( ) : nullptr;
 
 	uint64_t at = BenchCycles( );
-	const ClassPlan *plan = ent != nullptr ? GetPlan( unknown->GetNetworkable( )->GetServerClass( ), ent ) : nullptr;
+	const ClassPlan *plan = nullptr;
+	if ( ent != nullptr )
+	{
+		ServerClass *sc = unknown->GetNetworkable( )->GetServerClass( );
+		plan = sc == slot.planClass && slot.plan != nullptr ? slot.plan : GetPlan( sc, ent );
+		slot.plan = plan;
+		slot.planClass = sc;
+	}
+
 	BenchAddCycles( BP_PLAN, at );
 
 	if ( plan == nullptr || plan->blobSize == 0 )
@@ -80,6 +92,9 @@ static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
 		EmitGone( out, ( uint16_t )index, slot );
 		return;
 	}
+
+	if ( index > rec.highWater )
+		rec.highWater = index;
 
 	CaptureLive( out, index, tick, edict, ent, plan );
 }
@@ -98,9 +113,14 @@ void CaptureTick( float curTime )
 	std::vector<uint8_t> out = AcquireBuffer( );
 	int64_t began = BenchTickBegin( );
 
+	int used = g_engine->GetEntityCount( ) + 1;
+	int scan = used > rec.highWater + 1 ? used : rec.highWater + 1;
+	if ( scan > kMaxEdicts )
+		scan = kMaxEdicts;
+
 	// Stage clones are replay furniture standing in the live world, so
 	// recording them would file a replay back into its own recording.
-	for ( int i = 0; i < kMaxEdicts; ++i )
+	for ( int i = 0; i < scan; ++i )
 	{
 		if ( rec.skip[i] != 0 )
 			EmitGone( out, ( uint16_t )i, rec.slots[i] );

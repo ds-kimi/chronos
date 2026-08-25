@@ -82,6 +82,13 @@ void AppendCapture( std::string &out )
 		g_bench.counter[BC_DELTAREC].Mean( ), g_bench.counter[BC_GONEREC].Mean( ) );
 	Fmt( out, "           emitted %.1f KB/tick of %.1f KB scanned (%.1f%% of blob)\n",
 		emitted / 1024.0, blob / 1024.0, blob > 0.0 ? emitted / blob * 100.0 : 0.0 );
+
+	// Entries against runs says how far coalescing got: the closer runs get to
+	// one, the fewer memcpy and memcmp calls the scan makes per entity.
+	double entries = g_bench.counter[BC_ENTRIES].Mean( );
+	double runs = g_bench.counter[BC_RUNS].Mean( );
+	Fmt( out, "           %.0f plan entries in %.0f runs (%.1fx fewer copies)\n",
+		entries, runs, runs > 0.0 ? entries / runs : 0.0 );
 }
 
 }

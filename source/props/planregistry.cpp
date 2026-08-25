@@ -68,6 +68,7 @@ const ClassPlan *GetPlan( ServerClass *sc, const void *entity )
 	plan->id = ( uint16_t )s_plans.size( );
 	plan->netName = sc->GetName( );
 	FlattenTable( sc->m_pTable, 0, *plan, &seen[0], 0, entity );
+	FinalizePlan( *plan );
 
 	s_planByClass[sc] = plan->id;
 	s_plans.push_back( plan );

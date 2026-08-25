@@ -17,6 +17,8 @@ bool ResolveLeaf( SendProp *prop, int base, int &outOffset, int &outSize, int &o
 void FlattenTable( SendTable *table, int base, ClassPlan &plan, uint8_t *seen, int depth,
 	const void *entity );
 
+void FinalizePlan( ClassPlan &plan );
+
 const ClassPlan *GetPlan( ServerClass *sc, const void *entity );
 const ClassPlan *PlanById( uint16_t id );
 void ResetPlans( );

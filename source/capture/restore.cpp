@@ -12,49 +12,26 @@
 namespace Chronos
 {
 
-// A stand-in is written to by name, not wholesale. Two reasons, and the second
-// is why the blacklist this replaced was not enough:
-//
-// Some SendProps resolve to offsets past the end of the object they describe --
-// custom proxies park them there, and the plan keeps anything under
-// kMaxPropOffset. Reading those during capture is harmless, and writing them
-// back onto the entity they came from mostly is too, since the bytes go back
-// where they were found. Writing them onto a stand-in puts one object's
-// trailing memory into another's, which corrupts whatever the allocator has
-// after it; the crash then lands in the next spawn, not here.
-//
-// So a stand-in gets what a stand-in is for: where it is, how it is posed, and
-// what it looks like. Everything else stays on the entity that owns it.
-static bool ProxySafe( const std::string &name )
+// Writing an entity's own bytes back copies everything, so it goes run by run.
+static void PushWhole( uint8_t *base, const WorkSlot &work, const ClassPlan *plan )
 {
-	static const char *kSafe[] = {
-		"m_vecOrigin", "m_angRotation",
-		"m_nSequence", "m_flCycle", "m_flPlaybackRate", "m_flModelScale",
-		"m_nSkin", "m_nBody", "m_nHitboxSet",
-		"m_nRenderMode", "m_nRenderFX", "m_clrRender",
-		"m_iHealth", "m_lifeState"
-	};
-
-	for ( size_t i = 0; i < sizeof( kSafe ) / sizeof( kSafe[0] ); ++i )
+	for ( size_t i = 0; i < plan->runs.size( ); ++i )
 	{
-		if ( name == kSafe[i] )
-			return true;
+		const PlanRun &run = plan->runs[i];
+		memcpy( base + run.offset, &work.blob[run.blobAt], run.size );
 	}
-
-	return false;
 }
 
-// Built once per class, on the first restore that writes into a stand-in.
-static const std::vector<uint8_t> &ProxyMask( const ClassPlan *plan )
+// A stand-in goes member by member: the whole point of the mask is that most
+// members must not be written onto an entity standing in for another.
+static void PushMasked( uint8_t *base, const WorkSlot &work, const ClassPlan *plan )
 {
-	if ( plan->proxySkip.size( ) != plan->entries.size( ) )
+	const std::vector<uint8_t> &skip = ProxyMask( plan );
+	for ( size_t i = 0; i < plan->entries.size( ); ++i )
 	{
-		plan->proxySkip.assign( plan->entries.size( ), 0 );
-		for ( size_t i = 0; i < plan->names.size( ); ++i )
-			plan->proxySkip[i] = ProxySafe( plan->names[i] ) ? 0 : 1;
+		if ( skip[i] == 0 )
+			memcpy( base + plan->entries[i].offset, &work.blob[plan->prefix[i]], plan->entries[i].size );
 	}
-
-	return plan->proxySkip;
 }
 
 // Writes the reconstructed blob straight back over the entity's members, then
@@ -72,15 +49,10 @@ static void PushEntity( int target, const WorkSlot &work, bool proxied )
 		return;
 
 	uint8_t *base = reinterpret_cast<uint8_t *>( ent );
-	const std::vector<uint8_t> &skip = proxied ? ProxyMask( plan ) : plan->proxySkip;
-
-	for ( size_t i = 0; i < plan->entries.size( ); ++i )
-	{
-		if ( proxied && skip[i] != 0 )
-			continue;
-
-		memcpy( base + plan->entries[i].offset, &work.blob[plan->prefix[i]], plan->entries[i].size );
-	}
+	if ( proxied )
+		PushMasked( base, work, plan );
+	else
+		PushWhole( base, work, plan );
 
 	// StateChanged() lives in the server binary; setting the flags directly does
 	// the same job and makes the engine reship every prop of this edict.

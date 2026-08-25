@@ -1,4 +1,5 @@
 #include "bench/counters.h"
+#include "core/chronos.h"
 
 namespace Chronos
 {
@@ -45,7 +46,7 @@ void BenchTickEnd( int64_t began, size_t frameBytes )
 
 // Emitted bytes against blob size is the delta ratio: how much of each entity
 // actually moved, which is what decides whether the ring fills in a minute.
-void BenchCountEntity( bool key, size_t wrote, size_t blobSize )
+void BenchCountEntity( bool key, size_t wrote, const ClassPlan *plan )
 {
 	if ( !g_bench.on )
 		return;
@@ -53,7 +54,12 @@ void BenchCountEntity( bool key, size_t wrote, size_t blobSize )
 	++g_bench.volume[BC_LIVE];
 	++g_bench.volume[key ? BC_KEYREC : BC_DELTAREC];
 	g_bench.volume[BC_EMITBYTES] += wrote;
-	g_bench.volume[BC_BLOBBYTES] += blobSize;
+	g_bench.volume[BC_BLOBBYTES] += plan->blobSize;
+
+	// Entries against runs says how far coalescing got: the closer runs are to
+	// one, the fewer memcpy and memcmp calls the scan makes per entity.
+	g_bench.volume[BC_ENTRIES] += plan->entries.size( );
+	g_bench.volume[BC_RUNS] += plan->runs.size( );
 }
 
 void BenchCountGone( )

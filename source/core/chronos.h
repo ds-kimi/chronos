@@ -40,12 +40,24 @@ struct PlanEntry
 	uint8_t type;
 };
 
+// A stretch of the entity that is contiguous both in the object and in the
+// blob, so one memcpy replaces the run of per-member copies it covers.
+struct PlanRun
+{
+	uint32_t blobAt;
+	uint32_t size;
+	uint16_t offset;
+	uint16_t first;
+	uint16_t count;
+};
+
 // Flattened capture plan shared by every entity of one ServerClass.
 struct ClassPlan
 {
 	std::vector<PlanEntry> entries;
 	std::vector<std::string> names;
 	std::vector<uint32_t> prefix;
+	std::vector<PlanRun> runs;
 	uint32_t blobSize;
 	uint16_t id;
 	const char *netName;
@@ -66,14 +78,21 @@ struct ClassPlan
 struct EntitySlot
 {
 	std::vector<uint8_t> blob;
+
+	// The plan this edict resolved to last tick, kept with the ServerClass it
+	// came from. An entity keeps its class for its whole life, so this turns a
+	// hash lookup per entity per tick into a pointer compare.
+	const ClassPlan *plan;
+	const void *planClass;
+
 	uint16_t classId;
 	uint16_t classNameId;
 	uint16_t modelNameId;
 	bool live;
 	bool needKey;
 
-	EntitySlot() : classId( 0xFFFF ), classNameId( 0 ), modelNameId( 0 ),
-		live( false ), needKey( true ) { }
+	EntitySlot() : plan( nullptr ), planClass( nullptr ), classId( 0xFFFF ),
+		classNameId( 0 ), modelNameId( 0 ), live( false ), needKey( true ) { }
 };
 
 struct Frame

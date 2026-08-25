@@ -9,6 +9,8 @@
 namespace Chronos
 {
 
+struct ClassPlan;
+
 // Timed spans, all recorded in milliseconds.
 enum BenchPhase
 {
@@ -35,6 +37,8 @@ enum BenchCounter
 	BC_GONEREC,
 	BC_EMITBYTES,
 	BC_BLOBBYTES,
+	BC_ENTRIES,
+	BC_RUNS,
 	BC_COUNT
 };
 
@@ -80,7 +84,7 @@ void CalibrateClock( );
 // Per-tick probes, defined in bench/tick.cpp.
 int64_t BenchTickBegin( );
 void BenchTickEnd( int64_t began, size_t frameBytes );
-void BenchCountEntity( bool key, size_t wrote, size_t blobSize );
+void BenchCountEntity( bool key, size_t wrote, const ClassPlan *plan );
 void BenchCountGone( );
 
 bool InstallGameFrameHook( );

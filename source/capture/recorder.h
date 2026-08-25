@@ -21,11 +21,15 @@ struct Recorder
 	size_t byteCap;
 	int keyInterval;
 	int32_t lastTick;
+
+	// Highest edict index ever seen live. The scan stops above this and the
+	// engine's own count, so an empty server does not walk all 8192 slots.
+	int highWater;
 	bool recording;
 
 	Recorder( ) : slots( kMaxEdicts ), ignore( kMaxEdicts, 0 ), skip( kMaxEdicts, 0 ), proxy( kMaxEdicts, 0xFFFF ), bytes( 0 ),
 		byteCap( 512u * 1024u * 1024u ), keyInterval( kDefaultKeyInterval ),
-		lastTick( -1 ), recording( false ) { }
+		lastTick( -1 ), highWater( 0 ), recording( false ) { }
 };
 
 // Reconstructed state of one edict while seeking; separate from the recorder's
@@ -54,6 +58,8 @@ const Frame *FrameAtTick( int32_t tick );
 void ScrapeEntity( CBaseEntity *ent, const ClassPlan *plan, std::vector<uint8_t> &dst );
 void EmitRecord( std::vector<uint8_t> &out, uint16_t index, const EntitySlot &slot,
 	const ClassPlan *plan, const std::vector<uint8_t> &cur, bool key );
+
+const std::vector<uint8_t> &ProxyMask( const ClassPlan *plan );
 
 void CaptureTick( float curTime );
 bool RestoreTick( int32_t tick, bool proxyOnly );
