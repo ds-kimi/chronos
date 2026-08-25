@@ -17,8 +17,19 @@ namespace Chronos
 std::deque<TempEntRecord> g_tempEnts;
 size_t g_tempEntCap = 40000;
 
+// __fastcall with a dummy edx parameter is a 32-bit MSVC-only quirk: old MSVC
+// thiscall passes `this` in ECX with a spare EDX slot, and matching that shape
+// with __fastcall is how a free function can stand in for a member function
+// pointer on that ABI. Neither the register nor the calling convention exists
+// on the Itanium ABI (Linux) or on x86-64 (both compilers), where `this` is
+// simply the first argument.
+#if defined( COMPILER_VC ) && defined( ARCHITECTURE_X86 )
 typedef void( __fastcall *PlaybackFn )( void *self, void *edx, IRecipientFilter &filter,
 	float delay, const void *sender, const SendTable *table, int classID );
+#else
+typedef void( *PlaybackFn )( void *self, IRecipientFilter &filter,
+	float delay, const void *sender, const SendTable *table, int classID );
+#endif
 
 static PlaybackFn s_original = nullptr;
 bool g_replayingTempEnts = false;
@@ -46,8 +57,13 @@ const ClassPlan *PlanForTable( const SendTable *table, const void *sender )
 	return plan;
 }
 
+#if defined( COMPILER_VC ) && defined( ARCHITECTURE_X86 )
 static void __fastcall Hook_Playback( void *self, void *edx, IRecipientFilter &filter,
 	float delay, const void *sender, const SendTable *table, int classID )
+#else
+static void Hook_Playback( void *self, IRecipientFilter &filter,
+	float delay, const void *sender, const SendTable *table, int classID )
+#endif
 {
 	// A stage replay keeps recording while it plays effects back through the
 	// same engine call, so without this an old firefight is filed as a new one.
@@ -72,7 +88,11 @@ static void __fastcall Hook_Playback( void *self, void *edx, IRecipientFilter &f
 	if ( began != 0 )
 		g_bench.phase[BP_TEMPENT].Add( QpcToMs( QpcNow( ) - began ) );
 
+#if defined( COMPILER_VC ) && defined( ARCHITECTURE_X86 )
 	s_original( self, edx, filter, delay, sender, table, classID );
+#else
+	s_original( self, filter, delay, sender, table, classID );
+#endif
 }
 
 bool InstallTempEntHook( )
