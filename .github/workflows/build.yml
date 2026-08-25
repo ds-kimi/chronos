@@ -21,9 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: x86
+          - platform: Win32
             suffix: win32
-          - platform: x86_64
+          - platform: x64
             suffix: win64
 
     steps:
@@ -113,14 +113,16 @@ jobs:
           curl -L -o premake.tar.gz "https://github.com/danielga/garrysmod_common/releases/download/premake-build%2F5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz"
           mkdir -p premake
           tar -xf premake.tar.gz -C premake
+          chmod +x premake/premake5
 
       - name: Generate project
-        run: ./premake/premake5 --gmcommon=garrysmod_common gmake2
+        run: |
+          set -e
+          ./premake/premake5 --gmcommon=garrysmod_common gmake2
+          test -d projects/linux/gmake2
 
       - name: Build
-        run: |
-          cd projects/linux/gmake2
-          make config=release_${{ matrix.platform == 'x86' && 'x86' || 'x86_64' }} -j$(nproc)
+        run: make -C projects/linux/gmake2 config=release_${{ matrix.platform }} -j$(nproc)
 
       - name: Stage the addon
         run: |
