@@ -23,18 +23,27 @@ jobs:
         include:
           - platform: Win32
             suffix: win32
+            generator_version: 2
           - platform: x64
             suffix: win64
+            generator_version: 3
 
     steps:
       - uses: actions/checkout@v4
 
+      # x86-64 support lives on a separate garrysmod_common branch that has not
+      # been merged upstream -- the pinned commit only builds x86.
       - name: Fetch garrysmod_common
         run: |
           git clone https://github.com/danielga/garrysmod_common.git
           cd garrysmod_common
-          git checkout ${{ env.GMCOMMON_REF }}
+          if [ "${{ matrix.platform }}" = "x64" ]; then
+            git checkout x86-64-support-sourcesdk
+          else
+            git checkout ${{ env.GMCOMMON_REF }}
+          fi
           git submodule update --init --recursive
+        shell: bash
 
       - uses: microsoft/setup-msbuild@v2
 
@@ -47,8 +56,10 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile premake.zip
           Expand-Archive -Path premake.zip -DestinationPath premake -Force
 
+      # x86_64 codegen needs project generator v3; --generator-version overrides
+      # the v2 pinned in premake5.lua without touching the file for the x86 build.
       - name: Generate project
-        run: ./premake/premake5.exe --gmcommon=garrysmod_common vs2022
+        run: ./premake/premake5.exe --gmcommon=garrysmod_common --generator-version=${{ matrix.generator_version }} vs2022
 
       - name: Build
         run: msbuild projects/windows/vs2022/chronos.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m
@@ -87,17 +98,25 @@ jobs:
         include:
           - platform: x86
             suffix: linux
+            generator_version: 2
           - platform: x86_64
             suffix: linux64
+            generator_version: 3
 
     steps:
       - uses: actions/checkout@v4
 
+      # x86-64 support lives on a separate garrysmod_common branch that has not
+      # been merged upstream -- the pinned commit only builds x86.
       - name: Fetch garrysmod_common
         run: |
           git clone https://github.com/danielga/garrysmod_common.git
           cd garrysmod_common
-          git checkout ${{ env.GMCOMMON_REF }}
+          if [ "${{ matrix.platform }}" = "x86_64" ]; then
+            git checkout x86-64-support-sourcesdk
+          else
+            git checkout ${{ env.GMCOMMON_REF }}
+          fi
           git submodule update --init --recursive
 
       # 32-bit build needs the multilib toolchain since the runner is x86_64.
@@ -115,14 +134,16 @@ jobs:
           tar -xf premake.tar.gz -C premake
           chmod +x premake/premake5
 
+      # danielga's premake build silently renames the gmake2 action to gmake,
+      # so the makefiles land in projects/linux/gmake, not .../gmake2.
       - name: Generate project
         run: |
           set -e
-          ./premake/premake5 --gmcommon=garrysmod_common gmake2
-          test -d projects/linux/gmake2
+          ./premake/premake5 --gmcommon=garrysmod_common --generator-version=${{ matrix.generator_version }} gmake2
+          test -d projects/linux/gmake
 
       - name: Build
-        run: make -C projects/linux/gmake2 config=release_${{ matrix.platform }} -j$(nproc)
+        run: make -C projects/linux/gmake config=release_${{ matrix.platform }} -j$(nproc)
 
       - name: Stage the addon
         run: |
