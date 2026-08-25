@@ -1,11 +1,24 @@
 #include "http/httpserve.h"
 
 #include <atomic>
+#include <cstring>
 #include <mutex>
 #include <thread>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#if defined( _WIN32 )
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+#else
+	#include <arpa/inet.h>
+	#include <netinet/in.h>
+	#include <netinet/tcp.h>
+	#include <sys/socket.h>
+	#include <unistd.h>
+
+	typedef int SOCKET;
+	#define INVALID_SOCKET ( -1 )
+	#define closesocket close
+#endif
 
 namespace Chronos
 {
@@ -87,15 +100,21 @@ bool StartClipServer( int port )
 	if ( s_running.load( ) )
 		return true;
 
+#if defined( _WIN32 )
 	WSADATA wsa;
 	if ( WSAStartup( MAKEWORD( 2, 2 ), &wsa ) != 0 )
 		return false;
+#endif
 
 	s_listen = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
 	if ( s_listen == INVALID_SOCKET )
 		return false;
 
+#if defined( _WIN32 )
 	BOOL reuse = TRUE;
+#else
+	int reuse = 1;
+#endif
 	setsockopt( s_listen, SOL_SOCKET, SO_REUSEADDR, ( const char * )&reuse, sizeof( reuse ) );
 
 	sockaddr_in address;
@@ -130,7 +149,9 @@ void StopClipServer( )
 	if ( s_thread.joinable( ) )
 		s_thread.join( );
 
+#if defined( _WIN32 )
 	WSACleanup( );
+#endif
 }
 
 size_t ClipCap( )

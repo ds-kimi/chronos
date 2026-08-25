@@ -6,7 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The module is 32-bit because srcds is. Everything here is Win32 on purpose.
 env:
   # Pinned so an upstream change cannot break a release build without a commit
   # here saying so. Bump it deliberately.
@@ -17,6 +16,15 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86
+            suffix: win32
+          - platform: x86_64
+            suffix: win64
 
     steps:
       - uses: actions/checkout@v4
@@ -43,14 +51,14 @@ jobs:
         run: ./premake/premake5.exe --gmcommon=garrysmod_common vs2022
 
       - name: Build
-        run: msbuild projects/windows/vs2022/chronos.sln /p:Configuration=Release /p:Platform=Win32 /m
+        run: msbuild projects/windows/vs2022/chronos.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m
 
       # Laid out the way it has to land in a garrysmod folder, so the zip is
       # extracted straight over it rather than read and rearranged by hand.
       - name: Stage the addon
         shell: pwsh
         run: |
-          $dll = Get-ChildItem -Recurse -Filter gmsv_chronos_win32.dll projects |
+          $dll = Get-ChildItem -Recurse -Filter gmsv_chronos_${{ matrix.suffix }}.dll projects |
             Select-Object -First 1
           if (-not $dll) { throw "built module not found" }
 
@@ -60,13 +68,93 @@ jobs:
           Copy-Item $dll.FullName package/lua/bin/
           Copy-Item README.md, LICENSE package/
 
-          Compress-Archive -Path package/* -DestinationPath chronos-win32.zip
+          Compress-Archive -Path package/* -DestinationPath chronos-${{ matrix.suffix }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chronos-win32
-          path: chronos-win32.zip
+          name: chronos-${{ matrix.suffix }}
+          path: chronos-${{ matrix.suffix }}.zip
           if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86
+            suffix: linux
+          - platform: x86_64
+            suffix: linux64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch garrysmod_common
+        run: |
+          git clone https://github.com/danielga/garrysmod_common.git
+          cd garrysmod_common
+          git checkout ${{ env.GMCOMMON_REF }}
+          git submodule update --init --recursive
+
+      # 32-bit build needs the multilib toolchain since the runner is x86_64.
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib
+
+      # Same reasoning as the Windows job: danielga's premake build keeps
+      # MultiProcessorCompile support that upstream premake dropped.
+      - name: Fetch premake5
+        run: |
+          curl -L -o premake.tar.gz "https://github.com/danielga/garrysmod_common/releases/download/premake-build%2F5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz"
+          mkdir -p premake
+          tar -xf premake.tar.gz -C premake
+
+      - name: Generate project
+        run: ./premake/premake5 --gmcommon=garrysmod_common gmake2
+
+      - name: Build
+        run: |
+          cd projects/linux/gmake2
+          make config=release_${{ matrix.platform == 'x86' && 'x86' || 'x86_64' }} -j$(nproc)
+
+      - name: Stage the addon
+        run: |
+          dll=$(find projects -name "gmsv_chronos_${{ matrix.suffix }}.dll" | head -n1)
+          if [ -z "$dll" ]; then echo "built module not found"; exit 1; fi
+
+          mkdir -p package/addons/chronos/lua package/lua/bin
+          cp -r addon/lua/autorun package/addons/chronos/lua/
+          cp -r addon/lua/chronos package/addons/chronos/lua/
+          cp "$dll" package/lua/bin/
+          cp README.md LICENSE package/
+
+          cd package && zip -r ../chronos-${{ matrix.suffix }}.zip . && cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chronos-${{ matrix.suffix }}
+          path: chronos-${{ matrix.suffix }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: [windows, linux]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       # The release is torn down rather than updated in place. Updating it left
       # the `latest` tag wherever it was first created -- the action moves
@@ -75,20 +163,17 @@ jobs:
       # pointed at the initial commit. Deleting both first is what makes every
       # master build actually roll forward.
       - name: Retire the previous rolling release
-        if: github.ref == 'refs/heads/master'
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release delete latest --yes --cleanup-tag || true
 
       # No versioning: every master build replaces the single rolling release.
       - name: Publish the rolling release
-        if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           target_commitish: ${{ github.sha }}
           name: Latest build
           body: Built from ${{ github.sha }}.
-          files: chronos-win32.zip
+          files: artifacts/*.zip
           make_latest: 'true'

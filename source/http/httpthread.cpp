@@ -6,8 +6,21 @@
 #include <mutex>
 #include <thread>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#if defined( _WIN32 )
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+	#define chronos_snprintf _snprintf
+#else
+	#include <arpa/inet.h>
+	#include <netinet/in.h>
+	#include <sys/socket.h>
+	#include <unistd.h>
+
+	typedef int SOCKET;
+	#define INVALID_SOCKET ( -1 )
+	#define closesocket close
+	#define chronos_snprintf snprintf
+#endif
 
 namespace Chronos
 {
@@ -52,13 +65,13 @@ static void SendClip( SOCKET client, uint32_t id )
 	char header[256];
 	if ( clip.empty( ) )
 	{
-		int length = _snprintf( header, sizeof( header ),
+		int length = chronos_snprintf( header, sizeof( header ),
 			"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" );
 		send( client, header, length, 0 );
 		return;
 	}
 
-	int length = _snprintf( header, sizeof( header ),
+	int length = chronos_snprintf( header, sizeof( header ),
 		"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: %u\r\n"
 		"Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
 		( unsigned )clip.size( ) );
@@ -105,7 +118,11 @@ static int ReadRequest( SOCKET client, char *request, int capacity )
 // so the close is graceful and the body is delivered whole.
 static void CloseGracefully( SOCKET client )
 {
+#if defined( _WIN32 )
 	shutdown( client, SD_SEND );
+#else
+	shutdown( client, SHUT_WR );
+#endif
 
 	char drain[512];
 	while ( recv( client, drain, sizeof( drain ), 0 ) > 0 )
@@ -127,9 +144,17 @@ static void ServeLoop( )
 		// A send timeout matters as much as a receive one here: the loop serves
 		// connections in turn, so one stalled reader would otherwise park every
 		// other clip behind it for as long as it felt like.
+#if defined( _WIN32 )
 		DWORD timeout = 3000;
 		setsockopt( client, SOL_SOCKET, SO_RCVTIMEO, ( const char * )&timeout, sizeof( timeout ) );
 		setsockopt( client, SOL_SOCKET, SO_SNDTIMEO, ( const char * )&timeout, sizeof( timeout ) );
+#else
+		struct timeval timeout;
+		timeout.tv_sec = 3;
+		timeout.tv_usec = 0;
+		setsockopt( client, SOL_SOCKET, SO_RCVTIMEO, ( const char * )&timeout, sizeof( timeout ) );
+		setsockopt( client, SOL_SOCKET, SO_SNDTIMEO, ( const char * )&timeout, sizeof( timeout ) );
+#endif
 
 		char request[2048];
 		int received = ReadRequest( client, request, sizeof( request ) );

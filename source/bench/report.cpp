@@ -4,6 +4,14 @@
 #include <cstdio>
 #include <cstring>
 
+#if defined( _WIN32 )
+	#define chronos_vsnprintf _vsnprintf
+	#define chronos_snprintf _snprintf
+#else
+	#define chronos_vsnprintf vsnprintf
+	#define chronos_snprintf snprintf
+#endif
+
 namespace Chronos
 {
 
@@ -12,7 +20,7 @@ void Fmt( std::string &out, const char *format, ... )
 	char line[512];
 	va_list args;
 	va_start( args, format );
-	int wrote = _vsnprintf( line, sizeof( line ) - 1, format, args );
+	int wrote = chronos_vsnprintf( line, sizeof( line ) - 1, format, args );
 	va_end( args );
 
 	if ( wrote < 0 )
@@ -34,7 +42,7 @@ static void AppendPhaseRow( std::string &out, const char *label, const Sample &s
 
 	char share[16];
 	if ( shareable && frameTotal > 0.0 )
-		_snprintf( share, sizeof( share ) - 1, "%.1f", sample.sum / frameTotal * 100.0 );
+		chronos_snprintf( share, sizeof( share ) - 1, "%.1f", sample.sum / frameTotal * 100.0 );
 	else
 		strncpy( share, "-", sizeof( share ) - 1 );
 

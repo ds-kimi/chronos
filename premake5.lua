@@ -27,4 +27,6 @@ CreateWorkspace({name = "chronos", abi_compatible = false, path = "projects/" ..
 		IncludeScanning()
 		filter("system:windows")
 			links({"psapi", "ws2_32"})
+		filter("system:linux")
+			links({"pthread"})
 		filter({})
