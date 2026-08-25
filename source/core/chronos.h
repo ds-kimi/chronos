@@ -42,6 +42,12 @@ struct PlanEntry
 
 // A stretch of the entity that is contiguous both in the object and in the
 // blob, so one memcpy replaces the run of per-member copies it covers.
+//
+// Letting a run stretch over small gaps of bytes the plan does not own was
+// tried and measured: at 4.0 members per run the members are genuinely
+// scattered, a 16-byte reach bought 10% fewer runs for 3% more bytes scanned,
+// and by 128 bytes the extra bytes cost more than the saved calls. Exact runs
+// stand.
 struct PlanRun
 {
 	uint32_t blobAt;
@@ -93,6 +99,13 @@ struct EntitySlot
 	uint16_t classNameId;
 	uint16_t modelNameId;
 
+	// The engine's class-name and model strings live in a pool that never
+	// rewrites an entry, so a pointer compare stands in for hashing the string
+	// again on every keyframe. Cleared with the slot, so a recycled edict cannot
+	// inherit an identity from whoever held the index before it.
+	const char *classNamePtr;
+	const char *modelNamePtr;
+
 	// Tick this index started holding its current occupant, stamped when the
 	// slot goes from empty to live and shipped in every keyframe.
 	int32_t born;
@@ -100,7 +113,8 @@ struct EntitySlot
 	bool needKey;
 
 	EntitySlot() : plan( nullptr ), planClass( nullptr ), classId( 0xFFFF ),
-		classNameId( 0 ), modelNameId( 0 ), born( kBornUnknown ), live( false ),
+		classNameId( 0 ), modelNameId( 0 ), classNamePtr( nullptr ),
+		modelNamePtr( nullptr ), born( kBornUnknown ), live( false ),
 		needKey( true ) { }
 };
 

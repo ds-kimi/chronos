@@ -39,7 +39,10 @@ LUA_FUNCTION( Lua_GetEntities )
 	if ( !BuildStateAtTick( tick ) )
 		return 1;
 
-	for ( int i = 0; i < kMaxEdicts; ++i )
+	// The rebuild's own high-water mark bounds this: no slot above it has ever
+	// been handed a keyframe, so none of them can be valid.
+	int scan = WorkHighWater( ) + 1;
+	for ( int i = 0; i < scan; ++i )
 	{
 		const WorkSlot *work = WorkAt( i );
 		if ( work == nullptr || !work->valid )

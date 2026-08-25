@@ -15,13 +15,17 @@ Recorder &Rec( )
 std::vector<uint8_t> AcquireBuffer( )
 {
 	Recorder &rec = Rec( );
-	if ( rec.pool.empty( ) )
-		return std::vector<uint8_t>( );
-
 	std::vector<uint8_t> buffer;
-	buffer.swap( rec.pool.back( ) );
-	rec.pool.pop_back( );
-	buffer.clear( );
+	if ( !rec.pool.empty( ) )
+	{
+		buffer.swap( rec.pool.back( ) );
+		rec.pool.pop_back( );
+		buffer.clear( );
+	}
+
+	if ( buffer.capacity( ) < rec.lastFrameBytes )
+		buffer.reserve( rec.lastFrameBytes );
+
 	return buffer;
 }
 
@@ -35,6 +39,7 @@ void PushFrame( int32_t tick, float curTime, std::vector<uint8_t> &data )
 	frame.curTime = curTime;
 	frame.data.swap( data );
 	rec.bytes += frame.data.size( );
+	rec.lastFrameBytes = frame.data.size( );
 
 	while ( rec.bytes > rec.byteCap && rec.frames.size( ) > 1 )
 	{

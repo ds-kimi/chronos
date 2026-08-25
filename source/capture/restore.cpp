@@ -1,6 +1,7 @@
 #include "bench/counters.h"
 #include "props/propplan.h"
 #include "capture/recorder.h"
+#include "capture/workstate.h"
 
 #include "edict.h"
 #include "eiface.h"
@@ -12,25 +13,28 @@
 namespace Chronos
 {
 
-// Writing an entity's own bytes back copies everything, so it goes run by run.
-static void PushWhole( uint8_t *base, const WorkSlot &work, const ClassPlan *plan )
-{
-	for ( size_t i = 0; i < plan->runs.size( ); ++i )
-	{
-		const PlanRun &run = plan->runs[i];
-		memcpy( base + run.offset, &work.blob[run.blobAt], run.size );
-	}
-}
-
-// A stand-in goes member by member: the whole point of the mask is that most
+// An entity getting its own bytes back takes every run in one memcpy; a stand-in
+// goes member by member, because the whole point of the mask is that most
 // members must not be written onto an entity standing in for another.
-static void PushMasked( uint8_t *base, const WorkSlot &work, const ClassPlan *plan )
+static void PushBlob( uint8_t *base, const WorkSlot &work, const ClassPlan *plan,
+	const uint8_t *skip )
 {
-	const std::vector<uint8_t> &skip = ProxyMask( plan );
+	if ( skip == nullptr )
+	{
+		for ( size_t i = 0; i < plan->runs.size( ); ++i )
+		{
+			const PlanRun &run = plan->runs[i];
+			memcpy( base + run.offset, &work.blob[run.blobAt], run.size );
+		}
+
+		return;
+	}
+
 	for ( size_t i = 0; i < plan->entries.size( ); ++i )
 	{
 		if ( skip[i] == 0 )
-			memcpy( base + plan->entries[i].offset, &work.blob[plan->prefix[i]], plan->entries[i].size );
+			memcpy( base + plan->entries[i].offset, &work.blob[plan->prefix[i]],
+				plan->entries[i].size );
 	}
 }
 
@@ -44,15 +48,13 @@ static void PushEntity( int target, const WorkSlot &work, bool proxied )
 
 	IServerUnknown *unknown = edict->GetUnknown( );
 	CBaseEntity *ent = unknown != nullptr ? unknown->GetBaseEntity( ) : nullptr;
-	const ClassPlan *plan = ent != nullptr ? GetPlan( unknown->GetNetworkable( )->GetServerClass( ), ent ) : nullptr;
-	if ( plan == nullptr || plan->id != work.classId || work.blob.size( ) != plan->blobSize )
+	const ClassPlan *plan = ent != nullptr ? PushPlan( target, unknown, ent ) : nullptr;
+	if ( plan == nullptr || plan->entries.empty( ) || plan->id != work.classId ||
+		work.blob.size( ) != plan->blobSize )
 		return;
 
 	uint8_t *base = reinterpret_cast<uint8_t *>( ent );
-	if ( proxied )
-		PushMasked( base, work, plan );
-	else
-		PushWhole( base, work, plan );
+	PushBlob( base, work, plan, proxied ? &ProxyMask( plan )[0] : nullptr );
 
 	// StateChanged() lives in the server binary; setting the flags directly does
 	// the same job and makes the engine reship every prop of this edict.
@@ -66,31 +68,27 @@ bool RestoreTick( int32_t tick, bool proxyOnly )
 
 	// The rebuild above is timed on its own, so this span is the push cost only.
 	int64_t began = g_bench.on ? QpcNow( ) : 0;
+	Recorder &rec = Rec( );
+	int scan = WorkHighWater( ) + 1;
 
-	for ( int i = 0; i < kMaxEdicts; ++i )
+	for ( int i = 0; i < scan; ++i )
 	{
-		const WorkSlot *work = WorkAt( i );
-		if ( work == nullptr || !work->valid || Rec( ).ignore[i] != 0 )
+		const WorkSlot &work = g_work[i];
+		if ( !work.valid || rec.ignore[i] != 0 )
 			continue;
 
 		// A bound proxy redirects a recorded edict onto a different live one,
 		// which is how Lua brings back entities that were deleted since.
 		// A stage replay owns nothing but its own clones: writing into the
 		// unbound originals is what froze the live world for everybody.
-		uint16_t target = Rec( ).proxy[i];
+		uint16_t target = rec.proxy[i];
 		if ( target == 0xFFFF && proxyOnly )
 			continue;
 
-		PushEntity( target == 0xFFFF ? i : target, *work, target != 0xFFFF );
+		PushEntity( target == 0xFFFF ? i : target, work, target != 0xFFFF );
 	}
 
-	if ( began != 0 )
-	{
-		double ms = QpcToMs( QpcNow( ) - began );
-		g_bench.phase[BP_RESTORE].Add( ms );
-		g_bench.nativeMs += ms;
-	}
-
+	BenchCharge( BP_RESTORE, began );
 	return true;
 }
 

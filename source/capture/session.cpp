@@ -17,6 +17,10 @@ void ClearRecording( )
 	for ( size_t i = 0; i < rec.slots.size( ); ++i )
 		rec.slots[i] = EntitySlot( );
 
+	// A new session restarts the tick counter, so a rebuilt state cached
+	// against a tick number from the old one would answer for the wrong frame.
+	InvalidateRebuild( );
+	ResetPushPlans( );
 	ClearTempEnts( );
 	ResetStrings( );
 }

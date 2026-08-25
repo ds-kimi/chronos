@@ -95,8 +95,6 @@ void FlattenTable( SendTable *table, int base, ClassPlan &plan, uint8_t *seen, i
 		PlanEntry entry = { ( uint16_t )offset, ( uint16_t )size, ( uint8_t )type };
 		plan.entries.push_back( entry );
 		plan.names.push_back( prop->GetName( ) != nullptr ? prop->GetName( ) : "?" );
-		plan.prefix.push_back( plan.blobSize );
-		plan.blobSize += size;
 	}
 }
 

@@ -45,14 +45,14 @@ static void SortPlan( ClassPlan &plan )
 // offsets to butt up against each other.
 static void BuildRuns( ClassPlan &plan )
 {
-	plan.prefix.clear( );
+	plan.prefix.assign( plan.entries.size( ), 0 );
 	plan.runs.clear( );
 	plan.blobSize = 0;
 
 	for ( size_t i = 0; i < plan.entries.size( ); ++i )
 	{
 		const PlanEntry &entry = plan.entries[i];
-		plan.prefix.push_back( plan.blobSize );
+		plan.prefix[i] = plan.blobSize;
 
 		PlanRun *last = plan.runs.empty( ) ? nullptr : &plan.runs.back( );
 		if ( last != nullptr && last->offset + last->size == entry.offset )

@@ -1,4 +1,5 @@
 #include "props/propplan.h"
+#include "capture/recorder.h"
 
 #include "dt_common.h"
 #include "dt_send.h"
@@ -82,6 +83,18 @@ const ClassPlan *PlanById( uint16_t id )
 
 void ResetPlans( )
 {
+	// Slots and the restore path both cache a resolved plan by pointer, and
+	// every one of those is about to be freed under them.
+	Recorder &rec = Rec( );
+	for ( size_t i = 0; i < rec.slots.size( ); ++i )
+	{
+		rec.slots[i].plan = nullptr;
+		rec.slots[i].planClass = nullptr;
+	}
+
+	InvalidateRebuild( );
+	ResetPushPlans( );
+
 	for ( size_t i = 0; i < s_plans.size( ); ++i )
 		delete s_plans[i];
 

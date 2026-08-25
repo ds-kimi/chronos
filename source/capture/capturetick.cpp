@@ -12,68 +12,43 @@
 namespace Chronos
 {
 
-// Written once when an edict stops existing so a seek can hide or delete the
-// entity instead of leaving it frozen at its last recorded transform.
-static void EmitGone( std::vector<uint8_t> &out, uint16_t index, EntitySlot &slot )
-{
-	if ( !slot.live )
-		return;
-
-	Put<uint16_t>( out, index );
-	Put<uint16_t>( out, 0 );
-	Put<uint8_t>( out, REC_GONE );
-	slot = EntitySlot( );
-	BenchCountGone( );
-}
-
-static void RefreshIdentity( edict_t *edict, EntitySlot &slot )
-{
-	slot.classNameId = InternString( edict->GetClassName( ) );
-
-	IServerEntity *serverEnt = edict->GetIServerEntity( );
-	slot.modelNameId = InternString( serverEnt != nullptr ? STRING( serverEnt->GetModelName( ) ) : "" );
-}
-
-// Split out of CaptureEntity so the scrape and emit probes have their own scope
-// and the resolve path above them stays out of the deep timings.
-static void CaptureLive( std::vector<uint8_t> &out, int index, int32_t tick,
+// Split out of CaptureEntity so the emit probe has its own scope and the
+// resolve path above it stays out of the deep timings.
+static void CaptureLive( Recorder &rec, std::vector<uint8_t> &out, int index, int32_t tick,
 	edict_t *edict, CBaseEntity *ent, const ClassPlan *plan )
 {
-	Recorder &rec = Rec( );
 	EntitySlot &slot = rec.slots[index];
-	static std::vector<uint8_t> current;
-
-	uint64_t at = BenchCycles( );
-	ScrapeEntity( ent, plan, current );
-	BenchAddCycles( BP_SCRAPE, at );
 
 	// An index that was empty last tick is holding somebody new as of this one.
 	if ( !slot.live )
 		slot.born = tick;
 
-	bool key = slot.needKey || slot.classId != plan->id || slot.blob.size( ) != current.size( ) ||
-		( ( tick + index ) % rec.keyInterval ) == 0;
+	bool key = slot.needKey || slot.classId != plan->id ||
+		slot.blob.size( ) != plan->blobSize || KeyDue( rec, tick, index );
 	if ( key )
 		RefreshIdentity( edict, slot );
 
 	size_t before = out.size( );
-	at = BenchCycles( );
-	EmitRecord( out, ( uint16_t )index, slot, plan, current, key );
+	uint64_t at = BenchCycles( );
+	if ( key )
+		EmitKey( out, ( uint16_t )index, slot, plan, ent );
+	else
+		EmitDelta( out, ( uint16_t )index, slot, plan, reinterpret_cast<const uint8_t *>( ent ) );
+
 	BenchAddCycles( BP_EMIT, at );
 
-	BenchCountEntity( key, out.size( ) - before, plan );
-	// Not a swap: `current` is shared by every entity, so swapping hands it a
-	// buffer sized for the previous class and the next resize reallocates.
-	// Measured 6% slower at 500+ entities than copying into existing capacity.
-	slot.blob = current;
+	// Branched here rather than inside the counter: the call is per live entity
+	// per tick, and off is the state a server actually runs in.
+	if ( g_bench.on )
+		BenchCountEntity( key, out.size( ) - before, plan );
+
 	slot.classId = plan->id;
 	slot.live = true;
 	slot.needKey = false;
 }
 
-static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
+static void CaptureEntity( Recorder &rec, std::vector<uint8_t> &out, int index, int32_t tick )
 {
-	Recorder &rec = Rec( );
 	EntitySlot &slot = rec.slots[index];
 	edict_t *edict = g_engine->PEntityOfEntIndex( index );
 	IServerUnknown *unknown = edict != nullptr && !edict->IsFree( ) ? edict->GetUnknown( ) : nullptr;
@@ -98,12 +73,29 @@ static void CaptureEntity( std::vector<uint8_t> &out, int index, int32_t tick )
 		rec.highWater = index;
 
 	if ( plan == nullptr || plan->blobSize == 0 )
-	{
-		EmitGone( out, ( uint16_t )index, slot );
-		return;
-	}
+		return EmitGone( out, ( uint16_t )index, slot );
 
-	CaptureLive( out, index, tick, edict, ent, plan );
+	CaptureLive( rec, out, index, tick, edict, ent, plan );
+}
+
+// How far up the edict array this tick has to look. GetEntityCount is a count
+// of used slots, not the highest index in use: the engine parks a freed edict
+// before reusing it, so a spawn after a delete lands above the count. Using it
+// alone as a bound left those entities uncaptured, and with no REC_GONE for
+// them either, a restore wrote one entity's bytes over whatever took its index.
+static int ScanBound( const Recorder &rec, int32_t tick )
+{
+	// The high-water mark can only ever learn about indices the bound already
+	// covers, so a full sweep runs periodically to find the ones above it.
+	if ( ( tick % kSweepInterval ) == 0 )
+		return kMaxEdicts;
+
+	int scan = rec.highWater + 1;
+	int used = g_engine->GetEntityCount( ) + 1;
+	if ( used > scan )
+		scan = used;
+
+	return scan > kMaxEdicts ? kMaxEdicts : scan;
 }
 
 // Ticks are counted here rather than read from CGlobalVars: that struct's
@@ -119,24 +111,7 @@ void CaptureTick( float curTime )
 	rec.lastTick = tick;
 	std::vector<uint8_t> out = AcquireBuffer( );
 	int64_t began = BenchTickBegin( );
-
-	// GetEntityCount is a count of used slots, not the highest index in use:
-	// the engine parks a freed edict before reusing it, so a spawn after a
-	// delete lands above the count. Using it as a bound left those entities
-	// uncaptured, and with no REC_GONE for them either, a restore wrote one
-	// entity's bytes over whatever later took its index.
-	int scan = rec.highWater + 1;
-	int used = g_engine->GetEntityCount( ) + 1;
-	if ( used > scan )
-		scan = used;
-
-	// The high-water mark can only ever learn about indices the bound already
-	// covers, so a full sweep runs periodically to find the ones above it.
-	if ( ( tick % kSweepInterval ) == 0 )
-		scan = kMaxEdicts;
-
-	if ( scan > kMaxEdicts )
-		scan = kMaxEdicts;
+	int scan = ScanBound( rec, tick );
 
 	// Stage clones are replay furniture standing in the live world, so
 	// recording them would file a replay back into its own recording.
@@ -145,7 +120,7 @@ void CaptureTick( float curTime )
 		if ( rec.skip[i] != 0 )
 			EmitGone( out, ( uint16_t )i, rec.slots[i] );
 		else
-			CaptureEntity( out, i, tick );
+			CaptureEntity( rec, out, i, tick );
 	}
 
 	Put<uint16_t>( out, kEndOfFrame );

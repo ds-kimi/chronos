@@ -105,4 +105,17 @@ inline void BenchAddCycles( BenchPhase phase, uint64_t began )
 		g_bench.cycles[phase] += Cycles( ) - began;
 }
 
+// Closes a QPC span and charges it as native time, so the Lua figure stays the
+// Lua work alone rather than the whole hook body it sits inside. A zero start
+// is a span that was never being timed.
+inline void BenchCharge( BenchPhase phase, int64_t began )
+{
+	if ( began == 0 )
+		return;
+
+	double ms = QpcToMs( QpcNow( ) - began );
+	g_bench.phase[phase].Add( ms );
+	g_bench.nativeMs += ms;
+}
+
 }

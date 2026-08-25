@@ -38,7 +38,7 @@ LUA_FUNCTION( Lua_SetKeyInterval )
 	if ( interval < 1 )
 		interval = 1;
 
-	Rec( ).keyInterval = interval;
+	SetKeyInterval( Rec( ), interval );
 	return 0;
 }
 
